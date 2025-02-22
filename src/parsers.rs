@@ -1,15 +1,16 @@
 use nom::{
     IResult,
     bytes::complete::take,
-    number::complete::{be_u8, be_u16, be_u24, be_u32},
+    number::complete::{be_u8, be_u24, be_u32, be_u64},
 };
 
 use crate::{
     flags::Flags,
     frames::{
-        DataFrame, ErrorCode, Frame, FrameHeader, FrameHeaderLength, FrameType, HeadersFrame,
-        PriorityFrame, RstStreamFrame, SettingsFrame, SettingsParameter, SettingsParameterFrame,
-        StreamDependency, StreamIdentifier,
+        ContinuationFrame, DataFrame, ErrorCode, Frame, FrameHeader, FrameHeaderLength, FrameType,
+        GoAwayFrame, HeadersFrame, PingFrame, PriorityFrame, PushPromiseFrame, RstStreamFrame,
+        SettingsFrame, SettingsParameterFrame, StreamDependency, StreamIdentifier,
+        WindowSizeIncrement, WindowUpdateFrame,
     },
 };
 
@@ -25,10 +26,10 @@ fn parse_optional_padding_length<'a>(
     }
 }
 
-fn parse_optional_padding_bytes<'a>(
-    bytes: &'a [u8],
+fn parse_optional_padding_bytes(
+    bytes: &[u8],
     maybe_pad_len: Option<u8>,
-) -> IResult<&'a [u8], Option<&'a [u8]>, nom::error::Error<&'a [u8]>> {
+) -> IResult<&[u8], Option<&[u8]>, nom::error::Error<&[u8]>> {
     if let Some(pl) = maybe_pad_len {
         let (bytes, p) = take(pl)(bytes)?;
         Ok((bytes, Some(p)))
@@ -49,10 +50,16 @@ fn parse_optional_stream_dependency<'a>(
     }
 }
 
-fn parse_stream_dependency<'a>(
-    bytes: &'a [u8],
-) -> IResult<&'a [u8], StreamDependency, nom::error::Error<&'a [u8]>> {
-    Ok(be_u32(bytes).map(|(b, i)| (b, StreamDependency::from_bits(i)))?)
+fn parse_stream_dependency(
+    bytes: &[u8],
+) -> IResult<&[u8], StreamDependency, nom::error::Error<&[u8]>> {
+    be_u32(bytes).map(|(b, i)| (b, StreamDependency::from_bits(i)))
+}
+
+fn parse_stream_identifier(
+    bytes: &[u8],
+) -> IResult<&[u8], StreamIdentifier, nom::error::Error<&[u8]>> {
+    be_u32(bytes).map(|(b, i)| (b, StreamIdentifier::from_bits(i)))
 }
 
 fn parse_optional_weight<'a>(
@@ -67,26 +74,28 @@ fn parse_optional_weight<'a>(
     }
 }
 
-fn parse_weight<'a>(bytes: &'a [u8]) -> IResult<&'a [u8], u8, nom::error::Error<&'a [u8]>> {
-    Ok(be_u8(bytes)?)
+fn parse_weight(bytes: &[u8]) -> IResult<&[u8], u8, nom::error::Error<&[u8]>> {
+    be_u8(bytes)
 }
 
-fn parse_payload<'a>(
-    bytes: &'a [u8],
-    length: u32,
-) -> IResult<&'a [u8], &'a [u8], nom::error::Error<&'a [u8]>> {
-    Ok(take(length)(bytes)?)
+fn parse_error_code(bytes: &[u8]) -> IResult<&[u8], ErrorCode, nom::error::Error<&[u8]>> {
+    let (bytes, err_code) = be_u32(bytes).map(|(b, v)| (b, ErrorCode::from(v)))?;
+    Ok((bytes, err_code))
 }
 
-fn parse_settings_parameter_frame(
-    bytes: &[u8],
-) -> IResult<&[u8], SettingsParameterFrame, nom::error::Error<&[u8]>> {
-    let (tail, bytes) = take(6usize)(bytes)?;
-    let (bytes, identifier) = be_u16(bytes).map(|(b, i)| (b, SettingsParameter::from(i)))?;
-    let (_bytes, value) = be_u32(bytes)?;
-
-    Ok((tail, SettingsParameterFrame { identifier, value }))
+fn parse_payload(bytes: &[u8], length: u32) -> IResult<&[u8], &[u8], nom::error::Error<&[u8]>> {
+    take(length)(bytes)
 }
+
+// fn parse_settings_parameter_frame(
+//     bytes: &[u8],
+// ) -> IResult<&[u8], SettingsParameterFrame, nom::error::Error<&[u8]>> {
+//     let (tail, bytes) = take(6usize)(bytes)?;
+//     let (bytes, identifier) = be_u16(bytes).map(|(b, i)| (b, SettingsParameter::from(i)))?;
+//     let (_bytes, value) = be_u32(bytes)?;
+
+//     Ok((tail, SettingsParameterFrame { identifier, value }))
+// }
 
 impl FrameHeader {
     pub fn parse(bytes: &'_ [u8]) -> IResult<&[u8], Self, nom::error::Error<&[u8]>> {
@@ -97,12 +106,15 @@ impl FrameHeader {
         let (_, stream_identifier) =
             be_u32(bytes).map(|(b, v)| (b, StreamIdentifier::from_bits(v)))?;
 
-        Ok((tail, Self {
-            length,
-            frame_type,
-            flags,
-            stream_identifier,
-        }))
+        Ok((
+            tail,
+            Self {
+                length,
+                frame_type,
+                flags,
+                stream_identifier,
+            },
+        ))
     }
 }
 
@@ -112,18 +124,21 @@ impl<'a> DataFrame<'a> {
         length: &FrameHeaderLength,
         flags: &Flags,
     ) -> IResult<&'a [u8], Self, nom::error::Error<&'a [u8]>> {
-        let (bytes, maybe_pad_len) = parse_optional_padding_length(bytes, &flags)?;
-        let pad_len = maybe_pad_len.unwrap_or(0) as u32;
+        let (bytes, maybe_pad_len) = parse_optional_padding_length(bytes, flags)?;
+        let pad_len = u32::from(maybe_pad_len.unwrap_or(0));
         let adjusted_len = length.length().saturating_sub(pad_len);
 
         let (bytes, data_bytes) = parse_payload(bytes, adjusted_len)?;
         let (bytes, maybe_padding_bytes) = parse_optional_padding_bytes(bytes, maybe_pad_len)?;
 
-        Ok((bytes, Self {
-            pad_length: maybe_pad_len,
-            data: data_bytes,
-            padding: maybe_padding_bytes,
-        }))
+        Ok((
+            bytes,
+            Self {
+                pad_length: maybe_pad_len,
+                data: data_bytes,
+                padding: maybe_padding_bytes,
+            },
+        ))
     }
 }
 
@@ -133,61 +148,181 @@ impl<'a> HeadersFrame<'a> {
         length: &FrameHeaderLength,
         flags: &Flags,
     ) -> IResult<&'a [u8], Self, nom::error::Error<&'a [u8]>> {
-        let (bytes, maybe_pad_len) = parse_optional_padding_length(bytes, &flags)?;
-        let pad_len = maybe_pad_len.unwrap_or(0) as u32;
+        let (bytes, maybe_pad_len) = parse_optional_padding_length(bytes, flags)?;
+        let pad_len = u32::from(maybe_pad_len.unwrap_or(0));
         let adjusted_len = length.length().saturating_sub(pad_len);
-        let (bytes, maybe_stream_dependency) = parse_optional_stream_dependency(bytes, &flags)?;
-        let (bytes, maybe_weight) = parse_optional_weight(bytes, &flags)?;
+        let (bytes, maybe_stream_dependency) = parse_optional_stream_dependency(bytes, flags)?;
+        let (bytes, maybe_weight) = parse_optional_weight(bytes, flags)?;
         let (bytes, header_block_fragment) = parse_payload(bytes, adjusted_len)?;
         let (bytes, maybe_padding_bytes) = parse_optional_padding_bytes(bytes, maybe_pad_len)?;
 
-        Ok((bytes, Self {
-            pad_length: maybe_pad_len,
-            stream_dependency: maybe_stream_dependency,
-            weight: maybe_weight,
-            header_block_fragment,
-            padding: maybe_padding_bytes,
-        }))
+        Ok((
+            bytes,
+            Self {
+                pad_length: maybe_pad_len,
+                stream_dependency: maybe_stream_dependency,
+                weight: maybe_weight,
+                header_block_fragment,
+                padding: maybe_padding_bytes,
+            },
+        ))
     }
 }
 
 impl PriorityFrame {
-    pub fn parse<'a>(bytes: &'a [u8]) -> IResult<&'a [u8], Self, nom::error::Error<&'a [u8]>> {
+    pub fn parse(bytes: &[u8]) -> IResult<&[u8], Self, nom::error::Error<&[u8]>> {
         let (tail, bytes) = take(5usize)(bytes)?;
         let (bytes, stream_dependency) = parse_stream_dependency(bytes)?;
         let (_bytes, weight) = parse_weight(bytes)?;
 
-        Ok((tail, Self {
-            stream_dependency,
-            weight,
-        }))
+        Ok((
+            tail,
+            Self {
+                stream_dependency,
+                weight,
+            },
+        ))
     }
 }
 
 impl RstStreamFrame {
-    pub fn parse<'a>(bytes: &[u8]) -> IResult<&[u8], Self, nom::error::Error<&[u8]>> {
-        let (bytes, err_code) = be_u32(bytes).map(|(b, v)| (b, ErrorCode::from(v)))?;
-        Ok((bytes, Self {
-            error_code: err_code,
-        }))
+    pub fn parse(bytes: &[u8]) -> IResult<&[u8], Self, nom::error::Error<&[u8]>> {
+        let (bytes, err_code) = parse_error_code(bytes)?;
+        Ok((
+            bytes,
+            Self {
+                error_code: err_code,
+            },
+        ))
     }
 }
 
 impl<'a> SettingsFrame<'a> {
     pub fn parse(
-        bytes: &[u8],
+        bytes: &'a [u8],
         length: &FrameHeaderLength,
         flags: &Flags,
     ) -> IResult<&'a [u8], Self, nom::error::Error<&'a [u8]>> {
-        let settings = match flags.contains(Flags::ACK) {
-            true => {}
-            false => {}
+        if flags.contains(Flags::ACK) {
+            Ok((bytes, Self { parameters: None }))
+        } else {
+            let (tail, bytes) = take(length.length())(bytes)?;
+            if bytes.len() % 6usize != 0 {
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    bytes,
+                    nom::error::ErrorKind::LengthValue,
+                )));
+            }
+
+            if (bytes.as_ptr() as usize) % core::mem::align_of::<SettingsParameterFrame>() != 0 {
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    bytes,
+                    nom::error::ErrorKind::Verify,
+                )));
+            }
+            let count = bytes.len() / 6;
+            let ptr = bytes.as_ptr().cast::<SettingsParameterFrame>();
+            let parameters: Option<&[SettingsParameterFrame]> =
+                Some(unsafe { core::slice::from_raw_parts(ptr, count) });
+            Ok((tail, Self { parameters }))
+        }
+    }
+}
+
+impl<'a> PushPromiseFrame<'a> {
+    pub fn parse(
+        bytes: &'a [u8],
+        length: &FrameHeaderLength,
+        flags: &Flags,
+    ) -> IResult<&'a [u8], Self, nom::error::Error<&'a [u8]>> {
+        let (tail, bytes) = take(length.length())(bytes)?;
+        let (bytes, maybe_pad_len) = parse_optional_padding_length(bytes, flags)?;
+        let (bytes, promised_stream_identifier) = parse_stream_identifier(bytes)?;
+
+        let pad_len = u32::from(maybe_pad_len.unwrap_or(0));
+        let adjusted_len = u32::try_from(bytes.len())
+            .unwrap_or(u32::MAX)
+            .saturating_sub(pad_len);
+
+        let (bytes, header_block_fragment) = parse_payload(bytes, adjusted_len)?;
+        let (_bytes, maybe_padding_bytes) = parse_optional_padding_bytes(bytes, maybe_pad_len)?;
+
+        Ok((
+            tail,
+            Self {
+                pad_length: maybe_pad_len,
+                promised_stream_identifier,
+                header_block_fragment,
+                padding: maybe_padding_bytes,
+            },
+        ))
+    }
+}
+
+impl PingFrame {
+    pub fn parse(bytes: &[u8]) -> IResult<&[u8], Self, nom::error::Error<&[u8]>> {
+        let (bytes, opaque_data) = be_u64(bytes)?;
+        Ok((bytes, Self { opaque_data }))
+    }
+}
+
+impl<'a> GoAwayFrame<'a> {
+    pub fn parse(
+        bytes: &'a [u8],
+        length: &FrameHeaderLength,
+    ) -> IResult<&'a [u8], Self, nom::error::Error<&'a [u8]>> {
+        let (tail, bytes) = take(length.length())(bytes)?;
+        let (bytes, last_stream_identifier) = parse_stream_identifier(bytes)?;
+        let (bytes, error_code) = parse_error_code(bytes)?;
+        let remaining = u32::try_from(bytes.len()).unwrap_or(u32::MAX);
+        let debug_data = if remaining != 0 {
+            let (_bytes, debug_data) = parse_payload(bytes, remaining)?;
+            Some(debug_data)
+        } else {
+            None
         };
+
+        Ok((
+            tail,
+            Self {
+                last_stream_identifier,
+                error_code,
+                debug_data,
+            },
+        ))
+    }
+}
+
+impl WindowUpdateFrame {
+    pub fn parse(bytes: &[u8]) -> IResult<&[u8], Self, nom::error::Error<&[u8]>> {
+        let (bytes, window_size_increment) =
+            be_u32(bytes).map(|(b, i)| (b, WindowSizeIncrement::from_bits(i)))?;
+        Ok((
+            bytes,
+            Self {
+                window_size_increment,
+            },
+        ))
+    }
+}
+
+impl<'a> ContinuationFrame<'a> {
+    pub fn parse(
+        bytes: &'a [u8],
+        length: &FrameHeaderLength,
+    ) -> IResult<&'a [u8], Self, nom::error::Error<&'a [u8]>> {
+        let (bytes, header_block_fragment) = parse_payload(bytes, length.length())?;
+        Ok((
+            bytes,
+            Self {
+                header_block_fragment,
+            },
+        ))
     }
 }
 
 impl<'a> Frame<'a> {
-    pub fn parse(bytes: &'a [u8]) -> () {
+    pub fn parse(bytes: &'a [u8]) {
         let (bytes, frame_header) = FrameHeader::parse(bytes).unwrap();
         match frame_header.frame_type {
             FrameType::DATA => {
@@ -202,12 +337,24 @@ impl<'a> Frame<'a> {
             FrameType::RST_STREAM => {
                 RstStreamFrame::parse(bytes).unwrap();
             }
-            FrameType::SETTINGS => todo!(),
-            FrameType::PUSH_PROMISE => todo!(),
-            FrameType::PING => todo!(),
-            FrameType::GOAWAY => todo!(),
-            FrameType::WINDOW_UPDATE => todo!(),
-            FrameType::CONTINUATION => todo!(),
+            FrameType::SETTINGS => {
+                SettingsFrame::parse(bytes, &frame_header.length, &frame_header.flags).unwrap();
+            }
+            FrameType::PUSH_PROMISE => {
+                PushPromiseFrame::parse(bytes, &frame_header.length, &frame_header.flags).unwrap();
+            }
+            FrameType::PING => {
+                PingFrame::parse(bytes).unwrap();
+            }
+            FrameType::GOAWAY => {
+                GoAwayFrame::parse(bytes, &frame_header.length).unwrap();
+            }
+            FrameType::WINDOW_UPDATE => {
+                WindowUpdateFrame::parse(bytes).unwrap();
+            }
+            FrameType::CONTINUATION => {
+                ContinuationFrame::parse(bytes, &frame_header.length).unwrap();
+            }
             FrameType::ALTSVC => todo!(),
             FrameType::ORIGIN => todo!(),
             FrameType::UNKNOWN(_) => todo!(),

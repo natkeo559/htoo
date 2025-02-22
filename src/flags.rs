@@ -1,8 +1,6 @@
 use bitflags::bitflags;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-use crate::frames::FrameType;
-
 #[repr(transparent)]
 #[derive(Debug, Default, PartialEq, Eq, IntoBytes, FromBytes, KnownLayout, Immutable)]
 pub struct Flags(pub u8);

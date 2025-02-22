@@ -9,4 +9,4 @@ bitflags = "2.8.0"
 bytes = "1.10.0"
 hpack = "0.3.0"
 nom = "8.0.0"
-zerocopy = {version = "0.8.17", features = ["derive"]}
+zerocopy = {version = "0.8.20", features = ["derive"]}
