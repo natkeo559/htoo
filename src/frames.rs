@@ -1,41 +1,46 @@
 use bitfield_struct::bitfield;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::flags::Flags;
 
 #[bitfield(u32)]
+#[derive(PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct FrameHeaderLength {
     #[bits(24)]
-    length: u32,
+    pub length: u32,
 
     #[bits(8)]
-    __: u8,
+    _padding: u8,
 }
 
 #[bitfield(u32)]
+#[derive(PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct StreamIdentifier {
     #[bits(1)]
-    _reserved: u8,
+    pub _reserved: u8,
 
     #[bits(31)]
-    stream_identifier: u32,
+    pub stream_identifier: u32,
 }
 
 #[bitfield(u32)]
+#[derive(PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct StreamDependency {
     #[bits(1)]
-    exclusive: bool,
+    pub exclusive: bool,
 
     #[bits(31)]
-    stream_identifier: u32,
+    pub stream_identifier: u32,
 }
 
 #[bitfield(u32)]
+#[derive(PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct WindowSizeIncrement {
     #[bits(1)]
-    _reserved: u8,
+    pub _reserved: u8,
 
     #[bits(31)]
-    window_size: u32,
+    pub window_size: u32,
 }
 
 #[allow(non_camel_case_types)]
@@ -118,44 +123,112 @@ pub enum ErrorCode {
     UNKNOWN(u32),
 }
 
+impl From<u32> for ErrorCode {
+    fn from(value: u32) -> Self {
+        match value {
+            0x0 => Self::NO_ERROR,
+            0x1 => Self::PROTOCOL_ERROR,
+            0x2 => Self::INTERNAL_ERROR,
+            0x3 => Self::FLOW_CONTROL_ERROR,
+            0x4 => Self::SETTINGS_TIMEOUT,
+            0x5 => Self::STREAM_CLOSED,
+            0x6 => Self::FRAME_SIZE_ERROR,
+            0x7 => Self::REFUSED_STREAM,
+            0x8 => Self::CANCEL,
+            0x9 => Self::COMPRESSION_ERROR,
+            0xa => Self::CONNECT_ERROR,
+            0xb => Self::ENHANCE_YOUR_CALM,
+            0xc => Self::INADEQUATE_SECURITY,
+            0xd => Self::HTTP_1_1_REQUIRED,
+            v => Self::UNKNOWN(v),
+        }
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
 #[repr(u8)]
 pub enum FrameType {
+    #[default]
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    Data = 0x1,
+    DATA = 0x0,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    Headers = 0x2,
+    HEADERS = 0x1,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    Priority = 0x3,
+    PRIORITY = 0x2,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    RstStream = 0x4,
+    RST_STREAM = 0x3,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    Settings = 0x5,
+    SETTINGS = 0x4,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    PushPromise = 0x6,
+    PUSH_PROMISE = 0x5,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    Ping = 0x7,
+    PING = 0x6,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    GoAway = 0x8,
+    GOAWAY = 0x7,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    WindowUpdate = 0x9,
+    WINDOW_UPDATE = 0x8,
     /// RFC 7540: Hypertext Transfer Protocol Version 2
-    Continuation = 0xa,
+    CONTINUATION = 0x9,
     /// RFC 7838: HTTP Alternate Services
-    AltSvc = 0xb,
+    ALTSVC = 0xa,
     /// RFC 8336: The ORIGIN HTTP/2 Frame
-    Origin = 0xc,
+    ORIGIN = 0xc,
+    /// Unknown Frame Type
+    UNKNOWN(u8),
+}
+
+impl From<u8> for FrameType {
+    fn from(value: u8) -> Self {
+        match value {
+            0x0 => Self::DATA,
+            0x1 => Self::HEADERS,
+            0x2 => Self::PRIORITY,
+            0x3 => Self::RST_STREAM,
+            0x4 => Self::SETTINGS,
+            0x5 => Self::PUSH_PROMISE,
+            0x6 => Self::PING,
+            0x7 => Self::GOAWAY,
+            0x8 => Self::WINDOW_UPDATE,
+            0x9 => Self::CONTINUATION,
+            0xa => Self::ALTSVC,
+            0xc => Self::ORIGIN,
+            value => Self::UNKNOWN(value),
+        }
+    }
 }
 
 #[allow(non_camel_case_types)]
 #[repr(u16)]
-pub enum SettingsParameters {
+#[derive(Debug)]
+pub enum SettingsParameter {
     SETTINGS_HEADER_TABLE_SIZE = 0x1,
     SETTINGS_ENABLE_PUSH = 0x2,
     SETTINGS_MAX_CONCURRENT_STREAMS = 0x3,
     SETTINGS_INITIAL_WINDOW_SIZE = 0x4,
     SETTINGS_MAX_FRAME_SIZE = 0x5,
     SETTINGS_MAX_HEADER_LIST_SIZE = 0x6,
-    RESERVED,
+    RESERVED(u16),
+}
+
+impl Default for SettingsParameter {
+    fn default() -> Self {
+        Self::RESERVED(0)
+    }
+}
+
+impl From<u16> for SettingsParameter {
+    fn from(value: u16) -> Self {
+        match value {
+            0x1 => Self::SETTINGS_HEADER_TABLE_SIZE,
+            0x2 => Self::SETTINGS_ENABLE_PUSH,
+            0x3 => Self::SETTINGS_MAX_CONCURRENT_STREAMS,
+            0x4 => Self::SETTINGS_INITIAL_WINDOW_SIZE,
+            0x5 => Self::SETTINGS_MAX_FRAME_SIZE,
+            0x6 => Self::SETTINGS_MAX_HEADER_LIST_SIZE,
+            v => Self::RESERVED(v),
+        }
+    }
 }
 
 pub struct DataFrame<'a> {
@@ -182,7 +255,7 @@ pub struct RstStreamFrame {
 }
 
 pub struct SettingsParameterFrame {
-    pub identifier: u16,
+    pub identifier: SettingsParameter,
     pub value: u32,
 }
 
@@ -215,6 +288,7 @@ pub struct ContinuationFrame<'a> {
     pub header_block_fragment: &'a [u8],
 }
 
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct FrameHeader {
     pub length: FrameHeaderLength,
     pub frame_type: FrameType,
@@ -233,16 +307,4 @@ pub enum Frame<'a> {
     GoAway(FrameHeader, GoAwayFrame<'a>),
     WindowUpdate(FrameHeader, WindowUpdateFrame),
     Continuation(FrameHeader, ContinuationFrame<'a>),
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::flags::DataFlags;
-
-    #[test]
-    fn test_bitflags() {
-        let flag = DataFlags::from_bits(1);
-
-        assert_eq!(Some(DataFlags::END_STREAM), flag)
-    }
 }

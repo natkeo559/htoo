@@ -1,111 +1,58 @@
 use bitflags::bitflags;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
+use crate::frames::FrameType;
+
+#[repr(transparent)]
+#[derive(Debug, Default, PartialEq, Eq, IntoBytes, FromBytes, KnownLayout, Immutable)]
+pub struct Flags(pub u8);
 
 bitflags! {
-    /// Valid flags for a HEADERS frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct HeadersFlags: u8 {
-        /// `0x01`: END_STREAM (for HEADERS)
-        const END_STREAM  = 0x01;
-        /// `0x04`: END_HEADERS
-        const END_HEADERS = 0x04;
-        /// `0x08`: PADDED
-        const PADDED      = 0x08;
-        /// `0x20`: PRIORITY
-        const PRIORITY    = 0x20;
-    }
-}
-
-bitflags! {
-    /// Valid flags for a DATA frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct DataFlags: u8 {
-        /// `0x01`: END_STREAM (for DATA)
+    impl Flags: u8 {
+        /// `0x00`: NONE (No flags)
+        const NONE = 0x00;
+        /// `0x01`: ACK
+        const ACK = 0x01;
+        /// `0x01`: END_STREAM
         const END_STREAM = 0x01;
-        /// `0x08`: PADDED
-        const PADDED     = 0x08;
-    }
-}
-
-bitflags! {
-    /// Valid flags for a SETTINGS frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct SettingsFlags: u8 {
-        /// `0x01`: ACK
-        const ACK = 0x01;
-    }
-}
-
-bitflags! {
-    /// Valid flags for a PING frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct PingFlags: u8 {
-        /// `0x01`: ACK
-        const ACK = 0x01;
-    }
-}
-
-bitflags! {
-    /// Valid flags for a PUSH_PROMISE frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct PushPromiseFlags: u8 {
         /// `0x04`: END_HEADERS
         const END_HEADERS = 0x04;
-
         /// `0x08`: PADDED
-        const PADDED      = 0x08;
+        const PADDED = 0x08;
+        /// `0x20`: PRIORITY
+        const PRIORITY = 0x20;
     }
 }
 
-bitflags! {
-    /// Valid flags for a CONTINUATION frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct ContinuationFlags: u8 {
-        /// `0x04`: END_HEADERS
-        const END_HEADERS = 0x04;
+impl From<u8> for Flags {
+    fn from(value: u8) -> Self {
+        Self::from_bits_retain(value)
     }
 }
 
-bitflags! {
-    /// Valid flags for a PRIORITY frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct PriorityFlags: u8 { }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-bitflags! {
-    /// Valid flags for a RST_STREAM frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct RstStreamFlags: u8 { }
-}
+    #[test]
+    fn test_bitflags() {
+        let bytes = [0x01u8, 0x08, 0x00, 0x01].as_bytes();
+        let flag = Flags::ref_from_prefix(bytes);
+        let (flag, bytes) = flag.unwrap();
 
-bitflags! {
-    /// Valid flags for a GOAWAY frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct GoAwayFlags: u8 { }
-}
+        let flag2 = Flags::ref_from_prefix(bytes);
+        let (flag2, bytes) = flag2.unwrap();
 
-bitflags! {
-    /// Valid flags for a WINDOW_UPDATE frame
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct WindowUpdateFlags: u8 { }
-}
+        let flag3 = Flags::ref_from_prefix(bytes);
+        let (flag3, bytes) = flag3.unwrap();
 
-bitflags! {
-    /// Unknown flag
-    #[derive(Default, Debug, PartialEq, Eq)]
-    pub struct UnknownFlags: u8 { }
-}
+        let flag4 = Flags::ref_from_prefix(bytes);
+        let (flag4, _bytes) = flag4.unwrap();
 
-#[derive(Debug)]
-pub enum Flags {
-    Data(DataFlags),
-    Headers(HeadersFlags),
-    Priority(PriorityFlags),
-    RstStream(RstStreamFlags),
-    Settings(SettingsFlags),
-    PushPromise(PushPromiseFlags),
-    Ping(PingFlags),
-    GoAway(GoAwayFlags),
-    WindowUpdate(WindowUpdateFlags),
-    Continuation(ContinuationFlags),
-    Unknown(UnknownFlags),
+        assert_eq!(&Flags::END_STREAM, flag);
+        assert_eq!(&Flags::PADDED, flag2);
+        assert_eq!(&Flags::NONE, flag3);
+        assert_eq!(&Flags::END_STREAM, flag4);
+        assert_eq!(&Flags::ACK, flag4);
+    }
 }
