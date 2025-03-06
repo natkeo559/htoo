@@ -1,16 +1,13 @@
+use core::ascii;
+
 use nom::{
-    IResult,
-    bytes::complete::take,
-    number::complete::{be_u8, be_u24, be_u32, be_u64},
+    bytes::complete::take, number::complete::{be_u16, be_u24, be_u32, be_u64, be_u8}, IResult
 };
 
 use crate::{
     flags::Flags,
     frames::{
-        ContinuationFrame, DataFrame, ErrorCode, Frame, FrameHeader, FrameHeaderLength, FrameType,
-        GoAwayFrame, HeadersFrame, PingFrame, PriorityFrame, PushPromiseFrame, RstStreamFrame,
-        SettingsFrame, SettingsParameterFrame, StreamDependency, StreamIdentifier,
-        WindowSizeIncrement, WindowUpdateFrame,
+        ContinuationFrame, DataFrame, ErrorCode, Frame, FrameHeader, FrameHeaderLength, FrameType, GoAwayFrame, HeadersFrame, OriginEntry, OriginFrame, PingFrame, PriorityFrame, PushPromiseFrame, RstStreamFrame, SettingsFrame, SettingsParameterFrame, StreamDependency, StreamIdentifier, WindowSizeIncrement, WindowUpdateFrame
     },
 };
 
@@ -85,6 +82,25 @@ fn parse_error_code(bytes: &[u8]) -> IResult<&[u8], ErrorCode, nom::error::Error
 
 fn parse_payload(bytes: &[u8], length: u32) -> IResult<&[u8], &[u8], nom::error::Error<&[u8]>> {
     take(length)(bytes)
+}
+
+fn parse_origin_entry(bytes: &[u8]) -> IResult<&[u8], OriginEntry, nom::error::Error<&[u8]>> {
+    let (bytes, origin_length) = be_u16(bytes)?;
+    let (bytes, ascii) = {
+        if origin_length > 0 {
+        let (bytes, origin_ascii) = take(origin_length)(bytes)?;
+        let ascii_origin = core::str::from_utf8(origin_ascii)
+            .map_err(|_| nom::Err::Error(nom::error::Error::new(origin_ascii, nom::error::ErrorKind::Alpha)))?;
+            (bytes, Some(ascii_origin))
+        } else {
+            (bytes, None)
+        }
+    };
+
+    Ok((bytes, OriginEntry {
+        origin_length,
+        ascii_origin: ascii,
+    }))
 }
 
 // fn parse_settings_parameter_frame(
@@ -318,6 +334,12 @@ impl<'a> ContinuationFrame<'a> {
                 header_block_fragment,
             },
         ))
+    }
+}
+
+impl<'a> OriginFrame<'a> {
+    fn parse(bytes: &'a [u8], length: &FrameHeaderLength) {
+        
     }
 }
 

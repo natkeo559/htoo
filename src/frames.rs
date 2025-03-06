@@ -288,6 +288,15 @@ pub struct ContinuationFrame<'a> {
     pub header_block_fragment: &'a [u8],
 }
 
+pub struct OriginEntry<'a> {
+    pub origin_length: u16,
+    pub ascii_origin: Option<&'a str>
+}
+
+pub struct OriginFrame<'a> {
+    pub origin_entry: Option<OriginEntry<'a>>
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FrameHeader {
     pub length: FrameHeaderLength,
