@@ -1,5 +1,3 @@
-use core::ascii;
-
 use nom::{
     bytes::complete::take, number::complete::{be_u16, be_u24, be_u32, be_u64, be_u8}, IResult
 };
@@ -7,11 +5,11 @@ use nom::{
 use crate::{
     flags::Flags,
     frames::{
-        ContinuationFrame, DataFrame, ErrorCode, Frame, FrameHeader, FrameHeaderLength, FrameType, GoAwayFrame, HeadersFrame, OriginEntry, OriginFrame, PingFrame, PriorityFrame, PushPromiseFrame, RstStreamFrame, SettingsFrame, SettingsParameterFrame, StreamDependency, StreamIdentifier, WindowSizeIncrement, WindowUpdateFrame
+        ContinuationFrame, DataFrame, ErrorCode, Frame, FrameHeader, FrameHeaderLength, FrameType, GoAwayFrame, HeadersFrame, PingFrame, PriorityFrame, PushPromiseFrame, RstStreamFrame, SettingsFrame, SettingsParameter, SettingsParameterFrame, StreamDependency, StreamIdentifier, WindowSizeIncrement, WindowUpdateFrame
     },
 };
 
-fn parse_optional_padding_length<'a>(
+pub fn parse_optional_padding_length<'a>(
     bytes: &'a [u8],
     flags: &Flags,
 ) -> IResult<&'a [u8], Option<u8>, nom::error::Error<&'a [u8]>> {
@@ -23,7 +21,7 @@ fn parse_optional_padding_length<'a>(
     }
 }
 
-fn parse_optional_padding_bytes(
+pub fn parse_optional_padding_bytes(
     bytes: &[u8],
     maybe_pad_len: Option<u8>,
 ) -> IResult<&[u8], Option<&[u8]>, nom::error::Error<&[u8]>> {
@@ -35,7 +33,7 @@ fn parse_optional_padding_bytes(
     }
 }
 
-fn parse_optional_stream_dependency<'a>(
+pub fn parse_optional_stream_dependency<'a>(
     bytes: &'a [u8],
     flags: &Flags,
 ) -> IResult<&'a [u8], Option<StreamDependency>, nom::error::Error<&'a [u8]>> {
@@ -47,19 +45,19 @@ fn parse_optional_stream_dependency<'a>(
     }
 }
 
-fn parse_stream_dependency(
+pub fn parse_stream_dependency(
     bytes: &[u8],
 ) -> IResult<&[u8], StreamDependency, nom::error::Error<&[u8]>> {
     be_u32(bytes).map(|(b, i)| (b, StreamDependency::from_bits(i)))
 }
 
-fn parse_stream_identifier(
+pub fn parse_stream_identifier(
     bytes: &[u8],
 ) -> IResult<&[u8], StreamIdentifier, nom::error::Error<&[u8]>> {
     be_u32(bytes).map(|(b, i)| (b, StreamIdentifier::from_bits(i)))
 }
 
-fn parse_optional_weight<'a>(
+pub fn parse_optional_weight<'a>(
     bytes: &'a [u8],
     flags: &Flags,
 ) -> IResult<&'a [u8], Option<u8>, nom::error::Error<&'a [u8]>> {
@@ -71,20 +69,21 @@ fn parse_optional_weight<'a>(
     }
 }
 
-fn parse_weight(bytes: &[u8]) -> IResult<&[u8], u8, nom::error::Error<&[u8]>> {
+pub fn parse_weight(bytes: &[u8]) -> IResult<&[u8], u8, nom::error::Error<&[u8]>> {
     be_u8(bytes)
 }
 
-fn parse_error_code(bytes: &[u8]) -> IResult<&[u8], ErrorCode, nom::error::Error<&[u8]>> {
+pub fn parse_error_code(bytes: &[u8]) -> IResult<&[u8], ErrorCode, nom::error::Error<&[u8]>> {
     let (bytes, err_code) = be_u32(bytes).map(|(b, v)| (b, ErrorCode::from(v)))?;
     Ok((bytes, err_code))
 }
 
-fn parse_payload(bytes: &[u8], length: u32) -> IResult<&[u8], &[u8], nom::error::Error<&[u8]>> {
+pub fn parse_payload(bytes: &[u8], length: u32) -> IResult<&[u8], &[u8], nom::error::Error<&[u8]>> {
     take(length)(bytes)
 }
 
-fn parse_origin_entry(bytes: &[u8]) -> IResult<&[u8], OriginEntry, nom::error::Error<&[u8]>> {
+#[cfg(feature="rfc8336")]
+pub fn parse_origin_entry(bytes: &[u8]) -> IResult<&[u8], OriginEntry, nom::error::Error<&[u8]>> {
     let (bytes, origin_length) = be_u16(bytes)?;
     let (bytes, ascii) = {
         if origin_length > 0 {
@@ -103,15 +102,15 @@ fn parse_origin_entry(bytes: &[u8]) -> IResult<&[u8], OriginEntry, nom::error::E
     }))
 }
 
-// fn parse_settings_parameter_frame(
-//     bytes: &[u8],
-// ) -> IResult<&[u8], SettingsParameterFrame, nom::error::Error<&[u8]>> {
-//     let (tail, bytes) = take(6usize)(bytes)?;
-//     let (bytes, identifier) = be_u16(bytes).map(|(b, i)| (b, SettingsParameter::from(i)))?;
-//     let (_bytes, value) = be_u32(bytes)?;
+pub fn parse_settings_parameter_frame(
+    bytes: &[u8],
+) -> IResult<&[u8], SettingsParameterFrame, nom::error::Error<&[u8]>> {
+    let (tail, bytes) = take(6usize)(bytes)?;
+    let (bytes, identifier) = be_u16(bytes).map(|(b, i)| (b, SettingsParameter::from(i)))?;
+    let (_bytes, value) = be_u32(bytes)?;
 
-//     Ok((tail, SettingsParameterFrame { identifier, value }))
-// }
+    Ok((tail, SettingsParameterFrame { identifier, value }))
+}
 
 impl FrameHeader {
     pub fn parse(bytes: &'_ [u8]) -> IResult<&[u8], Self, nom::error::Error<&[u8]>> {
@@ -334,12 +333,6 @@ impl<'a> ContinuationFrame<'a> {
                 header_block_fragment,
             },
         ))
-    }
-}
-
-impl<'a> OriginFrame<'a> {
-    fn parse(bytes: &'a [u8], length: &FrameHeaderLength) {
-        
     }
 }
 
