@@ -3,6 +3,10 @@ use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::flags::Flags;
 
+/// A 32-bit bitfield storing a 24-bit length and 8 bits of reserved space.
+/// 
+/// The `length` field holds the frame size, while the remaining 8 bits (`_padding`) 
+/// are unused or reserved for future use.
 #[bitfield(u32)]
 #[derive(PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct FrameHeaderLength {
@@ -13,6 +17,8 @@ pub struct FrameHeaderLength {
     _padding: u8,
 }
 
+/// A 32-bit layout that reserves the first bit, with the remaining 31 bits used
+/// for the stream identifier. The `_reserved` field is unused.
 #[bitfield(u32)]
 #[derive(PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct StreamIdentifier {
@@ -23,6 +29,8 @@ pub struct StreamIdentifier {
     pub stream_identifier: u32,
 }
 
+/// A 32-bit bitfield where the first bit indicates whether the dependency is exclusive, 
+/// and the remaining 31 bits store the stream identifier.
 #[bitfield(u32)]
 #[derive(PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct StreamDependency {
@@ -33,6 +41,8 @@ pub struct StreamDependency {
     pub stream_identifier: u32,
 }
 
+/// A 32-bit bitfield with the first bit reserved, and the remaining 31 bits representing 
+/// the window size.
 #[bitfield(u32)]
 #[derive(PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct WindowSizeIncrement {
@@ -43,6 +53,7 @@ pub struct WindowSizeIncrement {
     pub window_size: u32,
 }
 
+/// HTTP/2 error codes mapped to their 32-bit representation.
 #[allow(non_camel_case_types)]
 #[repr(u32)]
 pub enum ErrorCode {
@@ -145,6 +156,10 @@ impl From<u32> for ErrorCode {
     }
 }
 
+
+/// Enumerates known HTTP/2 frame types as 8-bit values, including a variant for unknown types.
+/// 
+/// The default variant is `DATA` (`0x0`).
 #[derive(Debug, Default, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 #[repr(u8)]
@@ -198,6 +213,9 @@ impl From<u8> for FrameType {
     }
 }
 
+/// Enumerates 16-bit HTTP/2 SETTINGS parameters, with a variant for reserved codes.
+///
+/// These parameters correspond to RFC 7540-defined values.
 #[allow(non_camel_case_types)]
 #[repr(u16)]
 #[derive(Debug)]
@@ -231,12 +249,14 @@ impl From<u16> for SettingsParameter {
     }
 }
 
+/// An HTTP/2 DATA frame, containing optional padding and a payload.
 pub struct DataFrame<'a> {
     pub pad_length: Option<u8>,
     pub data: &'a [u8],
     pub padding: Option<&'a [u8]>,
 }
 
+/// An HTTP/2 HEADERS frame, optionally including padding, stream dependency, and a weight.
 pub struct HeadersFrame<'a> {
     pub pad_length: Option<u8>,
     pub stream_dependency: Option<StreamDependency>,
@@ -245,34 +265,41 @@ pub struct HeadersFrame<'a> {
     pub padding: Option<&'a [u8]>,
 }
 
+/// An HTTP/2 PRIORITY frame, indicating the stream dependency and weight.
 pub struct PriorityFrame {
     pub stream_dependency: StreamDependency,
     pub weight: u8,
 }
 
+/// An HTTP/2 RST_STREAM frame, carrying an error code that explains why the stream is reset.
 pub struct RstStreamFrame {
     pub error_code: ErrorCode,
 }
 
+/// Represents a single parameter-value pair in a SETTINGS frame.
 pub struct SettingsParameterFrame {
     pub identifier: SettingsParameter,
     pub value: u32,
 }
 
+/// An HTTP/2 SETTINGS frame, containing zero or more parameter-value pairs.
 pub struct SettingsFrame<'a> {
     pub parameters: Option<&'a [SettingsParameterFrame]>,
 }
 
+/// An HTTP/2 PING frame, carrying opaque data used to measure round-trip time or other diagnostics.
 pub struct PingFrame {
     pub opaque_data: u64,
 }
 
+/// An HTTP/2 GOAWAY frame, indicating that no further streams can be initiated on this connection.
 pub struct GoAwayFrame<'a> {
     pub last_stream_identifier: StreamIdentifier,
     pub error_code: ErrorCode,
     pub debug_data: Option<&'a [u8]>,
 }
 
+/// An HTTP/2 PUSH_PROMISE frame, which reserves a stream in advance of a request.
 pub struct PushPromiseFrame<'a> {
     pub pad_length: Option<u8>,
     pub promised_stream_identifier: StreamIdentifier,
@@ -280,23 +307,28 @@ pub struct PushPromiseFrame<'a> {
     pub padding: Option<&'a [u8]>,
 }
 
+/// An HTTP/2 WINDOW_UPDATE frame, used to increase the flow-control window.
 pub struct WindowUpdateFrame {
     pub window_size_increment: WindowSizeIncrement,
 }
 
+/// An HTTP/2 CONTINUATION frame, extending a header block begun by a previous HEADERS or PUSH_PROMISE.
 pub struct ContinuationFrame<'a> {
     pub header_block_fragment: &'a [u8],
 }
 
+/// A single origin entry carried in an ORIGIN frame, containing its length and optional ASCII string.
 pub struct OriginEntry<'a> {
     pub origin_length: u16,
     pub ascii_origin: Option<&'a str>
 }
 
+/// An HTTP/2 ORIGIN frame, optionally carrying a single origin entry.
 pub struct OriginFrame<'a> {
     pub origin_entry: Option<OriginEntry<'a>>
 }
 
+/// The universal frame header for HTTP/2, containing length, type, flags, and stream ID.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FrameHeader {
     pub length: FrameHeaderLength,
@@ -305,6 +337,8 @@ pub struct FrameHeader {
     pub stream_identifier: StreamIdentifier,
 }
 
+/// A high-level representation of any HTTP/2 frame, combining a [`FrameHeader`] 
+/// with the specific structure for that frame type.
 pub enum Frame<'a> {
     Data(FrameHeader, DataFrame<'a>),
     Headers(FrameHeader, HeadersFrame<'a>),
